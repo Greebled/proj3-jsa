@@ -46,20 +46,8 @@ def index():
         flask.g.vocab, flask.session["target_count"])
     flask.session["matches"] = []
     app.logger.debug("Session variables have been set")
-    assert flask.session["matches"] == []
-    assert flask.session["target_count"] > 0
-    app.logger.debug("At least one seems to be set correctly")
     return flask.render_template('vocab.html')
 
-
-@app.route("/keep_going")
-def keep_going():
-    """
-    After initial use of index, we keep the same scrambled
-    word and try to get more matches
-    """
-    flask.g.vocab = WORDS.as_list()
-    return flask.render_template('vocab.html')
 
 
 @app.route("/success")
@@ -74,7 +62,7 @@ def success():
 #######################
 
 
-@app.route("/_check", methods=["POST"])
+@app.route("/_check")
 def check():
     """
     User has submitted the form with a word ('attempt')
@@ -84,66 +72,38 @@ def check():
     made only from the jumble letters, and not a word they
     already found.
     """
-    app.logger.debug("Entering check")
-
-    # The data we need, from form and from cookie
-    text = flask.request.form["attempt"]
-    jumble = flask.session["jumble"]
+    text = flask.request.args.get("text", "", type=str).strip().lower()
+    jumble = flask.session.get("jumble", "")
     matches = flask.session.get("matches", [])  # Default to empty list
+    target_count = flask.session.get("target_count", 1)
 
     # Is it good?
     in_jumble = LetterBag(jumble).contains(text)
     matched = WORDS.has(text)
 
-    # Respond appropriately
-    if matched and in_jumble and not (text in matches):
+    new_match = False
+    message = ""
+    if len(text) == 0:
+        pass
+    elif matched and in_jumble and text not in matches:
         # Cool, they found a new word
         matches.append(text)
         flask.session["matches"] = matches
+        new_match = True
     elif text in matches:
-        flask.flash("You already found {}".format(text))
-    elif not matched:
-        flask.flash("{} isn't in the list of words".format(text))
+        message = "You already found {}".format(text)
     elif not in_jumble:
-        flask.flash(
-            '"{}" can\'t be made from the letters {}'.format(text, jumble))
-    else:
-        app.logger.debug("This case shouldn't happen!")
-        assert False  # Raises AssertionError
+        message = '"{}" can\'t be made from the letters {}'.format(
+            text, jumble)
 
-    # Choose page:  Solved enough, or keep going?
-    if len(matches) >= flask.session["target_count"]:
-       return flask.redirect(flask.url_for("success"))
-    else:
-       return flask.redirect(flask.url_for("keep_going"))
-
-###############
-# AJAX request handlers
-#   These return JSON, rather than rendering pages.
-###############
-
-
-@app.route("/_example")
-def example():
-    """
-    Example ajax request handler
-    """
-    app.logger.debug("Got a JSON request")
-    rslt = {"key": "value"}
+    rslt = {
+        "word": text,
+        "new_match": new_match,
+        "message": message,
+        "success": len(matches) >= target_count
+    }
     return flask.jsonify(result=rslt)
 
-
-#################
-# Functions used within the templates
-#################
-
-@app.template_filter('filt')
-def format_filt(something):
-    """
-    Example of a filter that can be used within
-    the Jinja2 code
-    """
-    return "Not what you asked for"
 
 ###################
 #   Error handlers
@@ -175,6 +135,6 @@ if __name__ == "__main__":
     if CONFIG.DEBUG:
         app.debug = True
         app.logger.setLevel(logging.DEBUG)
-        app.logger.info(
-            "Opening for global access on port {}".format(CONFIG.PORT))
-        app.run(port=CONFIG.PORT, host="0.0.0.0")
+    app.logger.info(
+        "Opening for global access on port {}".format(CONFIG.PORT))
+    app.run(port=CONFIG.PORT, host="0.0.0.0")
