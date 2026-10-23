@@ -52,9 +52,10 @@
   -- bootstrap may collapse to fewer columns and
   -- more rows if the window is narrow.
   -->
-<div class="row">
+<div class="row" id="vocab">
   {% for word in g.vocab %}
-    <div class="col-xs-2 text-center"> {{ word }} </div>
+    <div class="col-xs-2 text-center word{% if word in session.matches %} found{% endif %}"
+      data-word="{{ word }}"> {{ word }} </div>
     {% if loop.index is divisibleby 3 %}
     </div> <!-- row -->
     <div class="row">
@@ -70,7 +71,11 @@
   </div>
   </div><div class="row">
   <div class="col-xs-6 text-center lead">
-    <strong>{{ session.jumble }}</strong>
+    <strong id="jumble">
+      {%- for ch in session.jumble -%}
+        <span class="tile">{{ ch }}</span>
+      {%- endfor -%}
+    </strong>
   </div>
   </div><div class="row">
   <div class="col-xs-6 text-center">
@@ -80,36 +85,149 @@
 <br />
 <div class="row">
   <div class="col-xs-6 text-center">
-  <form id="entry" method="POST" action="/_check">
-    <label for="attempt">Word:</label>
+  <label for="attempt">Word:</label>
     <input id="attempt" name="attempt" type="text" width="15"
-      autocomplete="off"  autofocus />
-    <input type="submit" name="try" />
-  </form>
+      autocomplete="off" autocorrect="off" autocapitalize="off"
+      spellcheck="false" autofocus />
 </div></div>
 
 <br />
 
-{% if session.matches|length is not equalto 0  %}
+<div id="found" {% if session.matches|length == 0 %}style="display: none;"{% endif %}>
 <h2>You found </h2>
 <p id="results">
   {% for match in session.matches %}
-  {{ match }} 
+  {{ match }}
   {% endfor %}
 </p>
-{% endif %}
+</div>
 
-
-{% with messages = get_flashed_messages() %}
-  {% if messages %}
-    <!-- Mismatch, already found, etc. "flashed" from Python -->
-    {% for message in messages %}
-      <p class="message">{{ message }}</p>
-    {% endfor %}
-  {% endif %}
-{% endwith %}
-
-
-
+<p class="message" id="message"></p>
+ 
  </div> <!-- container -->
+ 
+<script type="text/javascript">
+  var SCRIPT_ROOT = {{ request.script_root|tojson|safe }};
+  var SUCCESS_URL = {{ url_for('success')|tojson|safe }};
+  var JUMBLE = {{ session.jumble|tojson|safe }};
+
+  $(function () {
+    var $attempt = $("#attempt");
+ 
+    function current() {
+      return $.trim($attempt.val()).toLowerCase();
+    }
+
+    //how many of each letter are in string s, e.g. "abb" -> {a: 1, b: 2}
+    function letterCounts(s) {
+      var counts = {};
+      for (var i = 0; i < s.length; i++) {
+        counts[s[i]] = (counts[s[i]] || 0) + 1;
+      }
+      return counts;
+    }
+
+    //keep only the typed letters that the jumble still has available
+    //returns the cleaned text and the last letter that was erased (if any)
+    function keepAvailable(raw) {
+      var left = letterCounts(JUMBLE);
+      var kept = "";
+      var erased = "";
+      raw = raw.toLowerCase();
+      for (var i = 0; i < raw.length; i++) {
+        var ch = raw[i];
+        if (left[ch] > 0) {
+          kept += ch;
+          left[ch] -= 1;
+        } else {
+          erased = ch;
+        }
+      }
+      return { text: kept, erased: erased };
+    }
+
+    //grey out one jumble letter for each letter typed
+    function greyUsedLetters(txt) {
+      var need = letterCounts(txt);
+      $("#jumble .tile").each(function () {
+        var ch = $(this).text();
+        if (need[ch] > 0) {
+          $(this).addClass("used");
+          need[ch] -= 1;
+        } else {
+          $(this).removeClass("used");
+        }
+      });
+    }
+
+    //grey out one jumble letter for each letter typed
+    function greyUsedLetters(txt) {
+      var need = letterCounts(txt);
+      $("#jumble .tile").each(function () {
+        var ch = $(this).text();
+        if (need[ch] > 0) {
+          $(this).addClass("used");
+          need[ch] -= 1;
+        } else {
+          $(this).removeClass("used");
+        }
+      });
+    }
+
+    function updateDisplay(txt) {
+      greyUsedLetters(txt);
+      highlightPartial(txt);
+    }
+
+    // "input" fires on every keystroke, paste, and delete
+    $attempt.on("input", function () {
+      //erase letters that aren't in the jumble (or are all used up)
+      var cleaned = keepAvailable($attempt.val());
+      if (cleaned.text !== $attempt.val()) {
+        $attempt.val(cleaned.text);
+      }
+ 
+      var eraseMsg = "";
+      if (cleaned.erased && $.trim(cleaned.erased).length > 0) {
+        if (JUMBLE.indexOf(cleaned.erased) >= 0) {
+          eraseMsg = 'You already used every "' + cleaned.erased + '"';
+        } else {
+          eraseMsg = 'There is no "' + cleaned.erased + '" in the letters';
+        }
+      }
+      $("#message").text(eraseMsg);
+
+      var txt = current();
+      updateDisplay(txt);
+      if (txt.length === 0) {
+        return;
+      }
+ 
+      $.getJSON(SCRIPT_ROOT + "/_check", { text: txt }, function (data) {
+        var rslt = data.result;
+ 
+        if (rslt.new_match) {
+          // The server has recorded it, so always show it
+          $("#results").append(document.createTextNode(" " + rslt.word + " "));
+          $("#found").show();
+          $(".word").filter(function () {
+            return $(this).attr("data-word") === rslt.word;
+          }).addClass("found").removeClass("partial");
+          if (current() === rslt.word) {
+            $attempt.val("");
+            updateDisplay("");
+          }
+          $("#message").text("");
+        } else if (current() === rslt.word) {
+          // Ignore answers for text the student has already changed
+          $("#message").text(rslt.message || eraseMsg);
+        }
+ 
+        if (rslt.success) {
+          window.location.href = SUCCESS_URL;
+        }
+      });
+    });
+  });
+</script>
 </body> </html>

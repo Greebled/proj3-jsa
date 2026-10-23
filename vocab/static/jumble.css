@@ -13,3 +13,23 @@
 .message { 
     color: red;
 }
+
+/* letters of the jumble greyed out once typed */
+.tile {
+    letter-spacing: 0.1em;
+}
+.tile.used {
+    color: #bbb;
+}
+ 
+/* words that start with what the student has typed so far */
+.word.partial {
+    background-color: #fff3a0;
+    font-weight: bold;
+}
+ 
+/* words the student has already found */
+.word.found {
+    color: green;
+    text-decoration: line-through;
+}
